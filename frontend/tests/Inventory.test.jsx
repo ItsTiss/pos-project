@@ -19,6 +19,28 @@ test('submitting the form calls createProduct and refreshes the list', async () 
   await waitFor(() => expect(client.createProduct).toHaveBeenCalled());
 });
 
+test('"Show low stock only" calls getProducts({lowStock: true}) and renders only that list', async () => {
+  const healthy = { id: '1', sku: 'OK-1', name: 'Plenty', unit_price: '2.00', stock_quantity: 50, unit: 'box', low_stock_threshold: 5 };
+  const low = { id: '2', sku: 'LOW-1', name: 'Running Out', unit_price: '3.00', stock_quantity: 2, unit: 'box', low_stock_threshold: 5 };
+  vi.spyOn(client, 'getProducts').mockImplementation(async ({ lowStock } = {}) =>
+    lowStock ? [low] : [healthy, low]
+  );
+
+  render(<Inventory />);
+  expect(await screen.findByText('OK-1')).toBeInTheDocument();
+  expect(screen.getByText('LOW-1')).toBeInTheDocument();
+
+  fireEvent.click(screen.getByLabelText(/show low stock only/i));
+
+  await waitFor(() => expect(client.getProducts).toHaveBeenLastCalledWith({ lowStock: true }));
+  await waitFor(() => expect(screen.queryByText('OK-1')).not.toBeInTheDocument());
+  expect(screen.getByText('LOW-1')).toBeInTheDocument();
+
+  // Unticking restores the full list.
+  fireEvent.click(screen.getByLabelText(/show low stock only/i));
+  expect(await screen.findByText('OK-1')).toBeInTheDocument();
+});
+
 test('editing a product prefills the form, submits an update, and clears edit state', async () => {
   const existingProduct = {
     id: '42',

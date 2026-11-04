@@ -1,27 +1,34 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Cart from '../components/Cart';
 import { getProducts, createSale } from '../api/client';
 
 export default function Checkout() {
   const [products, setProducts] = useState([]);
+  const [search, setSearch] = useState('');
   const [cart, setCart] = useState([]);
   const [error, setError] = useState(null);
   const [receipt, setReceipt] = useState(null);
+  const latestRequest = useRef(0);
 
-  const refresh = useCallback(async () => {
-    try {
-      const list = await getProducts();
-      setProducts(list);
-    } catch (err) {
-      setError(err.message);
-    }
-  }, []);
-
+  // Reload the product list whenever the search term changes. Responses can
+  // arrive out of order while the cashier types, so only the most recent
+  // request is allowed to update the list.
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    const requestId = ++latestRequest.current;
+    const term = search.trim();
+    (async () => {
+      try {
+        const list = term ? await getProducts({ search: term }) : await getProducts();
+        if (requestId === latestRequest.current) setProducts(list);
+      } catch (err) {
+        if (requestId === latestRequest.current) setError(err.message);
+      }
+    })();
+  }, [search]);
 
   function handleAddProduct(product) {
+    // Starting a new sale: the previous sale's receipt no longer applies.
+    setReceipt(null);
     setCart((current) => {
       const existing = current.find((line) => line.product_id === product.id);
       if (existing) {
@@ -47,6 +54,7 @@ export default function Checkout() {
 
   async function handleCompleteSale() {
     setError(null);
+    setReceipt(null);
     try {
       const result = await createSale({
         items: cart.map((line) => ({ product_id: line.product_id, quantity: line.quantity })),
@@ -64,6 +72,14 @@ export default function Checkout() {
       {error && <p role="alert">{error}</p>}
       <div>
         <h2>Products</h2>
+        <label htmlFor="product-search">Search products</label>
+        <input
+          id="product-search"
+          type="search"
+          placeholder="Name or SKU"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+        />
         <ul>
           {products.map((product) => (
             <li key={product.id}>

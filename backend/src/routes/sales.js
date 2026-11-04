@@ -57,14 +57,14 @@ router.post('/', async (req, res, next) => {
 
       if (productResult.rows.length === 0) {
         await client.query('ROLLBACK');
-        return res.status(404).json({ error: 'product_not_found', product_id });
+        return res.status(404).json({ error: 'product_not_found', product_id, message: 'Product not found' });
       }
 
       const { unit_price, stock_quantity } = productResult.rows[0];
 
       if (stock_quantity < totalRequested) {
         await client.query('ROLLBACK');
-        return res.status(409).json({ error: 'insufficient_stock', product_id });
+        return res.status(409).json({ error: 'insufficient_stock', product_id, message: 'Not enough stock for this product' });
       }
 
       priceByProduct.set(product_id, unit_price);

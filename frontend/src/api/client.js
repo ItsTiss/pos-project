@@ -3,7 +3,7 @@ const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 async function handleResponse(res) {
   if (!res.ok) {
     const body = await res.json();
-    throw new Error(body.message);
+    throw new Error(body.message || body.error || 'Request failed');
   }
   return res.json();
 }

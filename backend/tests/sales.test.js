@@ -31,6 +31,8 @@ test('POST /api/sales rejects and rolls back when quantity exceeds stock', async
     items: [{ product_id: product.id, quantity: 5 }]
   });
   expect(res.status).toBe(409);
+  expect(typeof res.body.message).toBe('string');
+  expect(res.body.message.length).toBeGreaterThan(0);
   const check = await request(app).get('/api/products');
   const unchanged = check.body.find(p => p.id === product.id);
   expect(unchanged.stock_quantity).toBe(1);
@@ -106,6 +108,8 @@ test('POST /api/sales returns 404 product_not_found for an unknown product_id an
   });
   expect(res.status).toBe(404);
   expect(res.body.error).toBe('product_not_found');
+  expect(typeof res.body.message).toBe('string');
+  expect(res.body.message.length).toBeGreaterThan(0);
 
   const check = await request(app).get('/api/products');
   const unchanged = check.body.find(p => p.id === okProduct.id);
@@ -156,4 +160,31 @@ test('POST /api/sales rejects a malformed product_id with 400 (not 500)', async 
   });
   expect(res.status).toBe(400);
   expect(res.body.error).toBe('invalid_input');
+});
+
+// Regression test: previously the 409 insufficient_stock and 404
+// product_not_found responses omitted `message`, which the frontend client
+// relies on to build the Error it throws (new Error(body.message)). With no
+// message, Error('').message is '' (falsy), and Checkout.jsx's
+// `{error && <p role="alert">{error}</p>}` guard silently rendered nothing
+// -- a cashier saw zero feedback on a rejected sale. Both error responses
+// must always include a non-empty `message` field.
+test('insufficient_stock and product_not_found responses always include a non-empty message field', async () => {
+  const shortProduct = await createProduct({ stock_quantity: 1 });
+  const stockRes = await request(app).post('/api/sales').send({
+    items: [{ product_id: shortProduct.id, quantity: 5 }]
+  });
+  expect(stockRes.status).toBe(409);
+  expect(stockRes.body.error).toBe('insufficient_stock');
+  expect(stockRes.body.message).toBeTruthy();
+  expect(typeof stockRes.body.message).toBe('string');
+
+  const unknownId = '00000000-0000-0000-0000-000000000000';
+  const notFoundRes = await request(app).post('/api/sales').send({
+    items: [{ product_id: unknownId, quantity: 1 }]
+  });
+  expect(notFoundRes.status).toBe(404);
+  expect(notFoundRes.body.error).toBe('product_not_found');
+  expect(notFoundRes.body.message).toBeTruthy();
+  expect(typeof notFoundRes.body.message).toBe('string');
 });

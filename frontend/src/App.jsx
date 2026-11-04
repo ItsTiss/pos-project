@@ -1,11 +1,6 @@
 import { BrowserRouter, Routes, Route, Link, Navigate } from 'react-router-dom';
 import Inventory from './pages/Inventory';
-
-// TODO(Task 7): replace this placeholder with the real Checkout page
-// component once that task lands.
-function Checkout() {
-  return <div />;
-}
+import Checkout from './pages/Checkout';
 
 export default function App() {
   return (

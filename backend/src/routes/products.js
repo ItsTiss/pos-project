@@ -6,7 +6,19 @@ const router = express.Router();
 const UNIQUE_VIOLATION = '23505';
 
 function validateProductBody(body) {
-  const { unit_price, stock_quantity } = body;
+  const { sku, name, unit, unit_price, stock_quantity } = body;
+
+  if (typeof sku !== 'string' || sku.trim() === '') {
+    return 'sku is required';
+  }
+
+  if (typeof name !== 'string' || name.trim() === '') {
+    return 'name is required';
+  }
+
+  if (typeof unit !== 'string' || unit.trim() === '') {
+    return 'unit is required';
+  }
 
   if (!(Number(unit_price) > 0)) {
     return 'unit_price must be greater than 0';

@@ -9,5 +9,6 @@ app.get('/api/health', (req, res) => {
 });
 
 app.use('/api/products', require('./routes/products'));
+app.use('/api/sales', require('./routes/sales'));
 
 module.exports = app;

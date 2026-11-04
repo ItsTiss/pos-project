@@ -1,0 +1,6 @@
+CREATE TABLE IF NOT EXISTS sales (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  total_amount NUMERIC(10,2) NOT NULL CHECK (total_amount > 0),
+  terminal_id UUID DEFAULT '00000000-0000-0000-0000-000000000001',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

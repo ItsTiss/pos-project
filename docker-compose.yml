@@ -9,6 +9,15 @@ services:
       - "5432:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
+      # Runs only when the volume is first created: creates pharmacy_pos_test.
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # TCP check: the temporary server used during first-time init only listens
+      # on a unix socket, so this stays unhealthy until init scripts finish.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U pos -d pharmacy_pos"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
 
   backend:
     build: ./backend
@@ -16,8 +25,13 @@ services:
       - "3001:3001"
     environment:
       DATABASE_URL: postgres://pos:pos@db:5432/pharmacy_pos
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+    # Migrations are idempotent (CREATE ... IF NOT EXISTS), so run them on
+    # every startup before the server begins accepting requests.
+    command: sh -c "npm run migrate && exec node src/server.js"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
 
 volumes:
   db_data:

@@ -2,8 +2,17 @@ const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 async function handleResponse(res) {
   if (!res.ok) {
-    const body = await res.json();
-    throw new Error(body.message || body.error || 'Request failed');
+    // The error body is normally JSON ({error, message}), but a proxy or an
+    // unexpected server failure can return HTML or nothing at all; don't let
+    // a JSON parse error replace the real failure.
+    let body = null;
+    try {
+      body = await res.json();
+    } catch {
+      body = null;
+    }
+    const status = res.status ? ` (HTTP ${res.status})` : '';
+    throw new Error(body?.message || body?.error || `Request failed${status}`);
   }
   return res.json();
 }

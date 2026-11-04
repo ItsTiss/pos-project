@@ -24,6 +24,25 @@ test('renders each line item with its name, quantity, and unit_price', () => {
   expect(screen.getByText(/5/)).toBeInTheDocument();
 });
 
+test('total is a clean 2-decimal figure, without floating-point artifacts', () => {
+  // 1.1 * 3 === 3.3000000000000003 in plain JS float math.
+  render(<Cart items={[
+    { product_id: '1', name: 'A', unit_price: 1.1, quantity: 3 },
+  ]} onRemove={() => {}} />);
+  expect(screen.getByText('Total: 3.30')).toBeInTheDocument();
+});
+
+test('handles string-typed unit_price exactly as the real API returns it', () => {
+  // The backend serialises NUMERIC(10,2) columns as strings like "1.10";
+  // they must be coerced to numbers, not string-concatenated.
+  render(<Cart items={[
+    { product_id: '1', name: 'A', unit_price: '1.10', quantity: 3 },
+    { product_id: '2', name: 'B', unit_price: '0.10', quantity: 1 },
+    { product_id: '3', name: 'C', unit_price: '0.20', quantity: 1 },
+  ]} onRemove={() => {}} />);
+  expect(screen.getByText('Total: 3.60')).toBeInTheDocument();
+});
+
 test('renders zero total for an empty cart', () => {
   render(<Cart items={[]} onRemove={() => {}} />);
   expect(screen.getByText(/0/)).toBeInTheDocument();

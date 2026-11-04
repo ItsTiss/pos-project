@@ -11,6 +11,18 @@ test('getProducts calls the products endpoint and returns parsed JSON', async ()
   expect(result).toEqual([{ id: '1' }]);
 });
 
+test('a non-JSON error body (e.g. an HTML error page) surfaces a fallback message, not a JSON parse error', async () => {
+  global.fetch = vi.fn().mockResolvedValue({
+    ok: false,
+    status: 502,
+    json: async () => JSON.parse('<!DOCTYPE html><html><body>Bad Gateway</body></html>'),
+  });
+  const err = await createSale({ items: [] }).catch((e) => e);
+  expect(err).toBeInstanceOf(Error);
+  expect(err.message).toBe('Request failed (HTTP 502)');
+  expect(err.message).not.toMatch(/Unexpected token/);
+});
+
 test('createSale throws with API message on failure', async () => {
   global.fetch = vi.fn().mockResolvedValue({ ok: false, json: async () => ({ message: 'insufficient stock' }) });
   await expect(createSale({ items: [] })).rejects.toThrow('insufficient stock');

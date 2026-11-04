@@ -1,0 +1,106 @@
+const express = require('express');
+const pool = require('../db/pool');
+
+const router = express.Router();
+
+const UNIQUE_VIOLATION = '23505';
+
+function validateProductBody(body) {
+  const { unit_price, stock_quantity } = body;
+
+  if (!(Number(unit_price) > 0)) {
+    return 'unit_price must be greater than 0';
+  }
+
+  if (!(Number(stock_quantity) >= 0)) {
+    return 'stock_quantity must be greater than or equal to 0';
+  }
+
+  return null;
+}
+
+router.get('/', async (req, res, next) => {
+  try {
+    const { search, lowStock } = req.query;
+    const conditions = [];
+    const params = [];
+
+    if (search) {
+      params.push(`%${search}%`);
+      conditions.push(`(name ILIKE $${params.length} OR sku ILIKE $${params.length})`);
+    }
+
+    if (lowStock === 'true') {
+      conditions.push('stock_quantity <= low_stock_threshold');
+    }
+
+    let query = 'SELECT * FROM products';
+    if (conditions.length > 0) {
+      query += ` WHERE ${conditions.join(' AND ')}`;
+    }
+    query += ' ORDER BY name';
+
+    const result = await pool.query(query, params);
+    res.status(200).json(result.rows);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/', async (req, res, next) => {
+  try {
+    const { sku, name, unit_price, stock_quantity, unit, low_stock_threshold } = req.body;
+
+    const validationError = validateProductBody(req.body);
+    if (validationError) {
+      return res.status(400).json({ error: 'invalid_input', message: validationError });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO products (sku, name, unit_price, stock_quantity, unit, low_stock_threshold)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING *`,
+      [sku, name, unit_price, stock_quantity, unit, low_stock_threshold]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (err) {
+    if (err.code === UNIQUE_VIOLATION) {
+      return res.status(409).json({ error: 'duplicate_sku', message: `Product with sku '${req.body.sku}' already exists` });
+    }
+    next(err);
+  }
+});
+
+router.put('/:id', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { sku, name, unit_price, stock_quantity, unit, low_stock_threshold } = req.body;
+
+    const validationError = validateProductBody(req.body);
+    if (validationError) {
+      return res.status(400).json({ error: 'invalid_input', message: validationError });
+    }
+
+    const result = await pool.query(
+      `UPDATE products
+       SET sku = $1, name = $2, unit_price = $3, stock_quantity = $4, unit = $5, low_stock_threshold = $6, updated_at = now()
+       WHERE id = $7
+       RETURNING *`,
+      [sku, name, unit_price, stock_quantity, unit, low_stock_threshold, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'not_found', message: `Product with id '${id}' not found` });
+    }
+
+    res.status(200).json(result.rows[0]);
+  } catch (err) {
+    if (err.code === UNIQUE_VIOLATION) {
+      return res.status(409).json({ error: 'duplicate_sku', message: `Product with sku '${req.body.sku}' already exists` });
+    }
+    next(err);
+  }
+});
+
+module.exports = router;

@@ -6,7 +6,7 @@ const router = express.Router();
 const UNIQUE_VIOLATION = '23505';
 
 function validateProductBody(body) {
-  const { sku, name, unit, unit_price, stock_quantity } = body;
+  const { sku, name, unit, unit_price } = body;
 
   if (typeof sku !== 'string' || sku.trim() === '') {
     return 'sku is required';
@@ -20,15 +20,36 @@ function validateProductBody(body) {
     return 'unit is required';
   }
 
-  if (!(Number(unit_price) > 0)) {
+  // unit_price is stored as NUMERIC(10,2): it must be a finite number that
+  // is still > 0 after rounding to cents (0.001 would round to 0.00) and fits
+  // in the column (max 99999999.99).
+  const price = toNumber(unit_price);
+  if (!Number.isFinite(price) || Math.round(price * 100) <= 0) {
     return 'unit_price must be greater than 0';
   }
+  if (price > MAX_PRICE) {
+    return `unit_price must be at most ${MAX_PRICE}`;
+  }
 
-  if (!(Number(stock_quantity) >= 0)) {
-    return 'stock_quantity must be greater than or equal to 0';
+  for (const field of ['stock_quantity', 'low_stock_threshold']) {
+    const value = toNumber(body[field]);
+    if (!Number.isInteger(value) || value < 0 || value > MAX_INT) {
+      return `${field} is required and must be an integer greater than or equal to 0`;
+    }
   }
 
   return null;
+}
+
+const MAX_PRICE = 99999999.99;
+const MAX_INT = 2147483647;
+
+// Accept JSON numbers or numeric strings; anything else (blank string, null,
+// missing, boolean, object) becomes NaN so it fails validation.
+function toNumber(value) {
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string' && value.trim() !== '') return Number(value);
+  return NaN;
 }
 
 router.get('/', async (req, res, next) => {

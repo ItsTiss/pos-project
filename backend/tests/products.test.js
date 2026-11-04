@@ -105,3 +105,57 @@ test('POST /api/products with a missing required field returns 400 JSON, not a 5
   expect(res.status).toBe(400);
   expect(res.body.error).toBe('invalid_input');
 });
+
+describe('numeric field validation returns 400 invalid_input JSON (never a 500)', () => {
+  const valid = { sku: 'VAL1', name: 'X', unit_price: 1, stock_quantity: 1, unit: 'box', low_stock_threshold: 1 };
+
+  const cases = [
+    ['blank low_stock_threshold', { low_stock_threshold: '' }],
+    ['missing low_stock_threshold', { low_stock_threshold: undefined }],
+    ['null low_stock_threshold', { low_stock_threshold: null }],
+    ['negative low_stock_threshold', { low_stock_threshold: -1 }],
+    ['non-integer low_stock_threshold', { low_stock_threshold: 2.5 }],
+    ['blank stock_quantity', { stock_quantity: '' }],
+    ['missing stock_quantity', { stock_quantity: undefined }],
+    ['non-integer stock_quantity', { stock_quantity: 1.5 }],
+    ['non-numeric stock_quantity', { stock_quantity: 'abc' }],
+    ['unit_price that rounds to 0.00', { unit_price: 0.001 }],
+    ['blank unit_price', { unit_price: '' }],
+    ['unit_price too large for NUMERIC(10,2)', { unit_price: 1e12 }],
+    ['stock_quantity too large for INTEGER', { stock_quantity: 3000000000 }],
+  ];
+
+  test.each(cases)('POST rejects %s', async (_label, override) => {
+    const res = await request(app).post('/api/products').send({ ...valid, ...override });
+    expect(res.status).toBe(400);
+    expect(res.headers['content-type']).toMatch(/application\/json/);
+    expect(res.body.error).toBe('invalid_input');
+    expect(typeof res.body.message).toBe('string');
+    const count = await pool.query('SELECT count(*)::int AS n FROM products');
+    expect(count.rows[0].n).toBe(0);
+  });
+
+  test.each(cases)('PUT rejects %s', async (_label, override) => {
+    const created = await request(app).post('/api/products').send(valid);
+    expect(created.status).toBe(201);
+    const res = await request(app).put(`/api/products/${created.body.id}`).send({ ...valid, ...override });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('invalid_input');
+  });
+
+  test('POST accepts zero stock_quantity and zero low_stock_threshold', async () => {
+    const res = await request(app).post('/api/products').send({ ...valid, stock_quantity: 0, low_stock_threshold: 0 });
+    expect(res.status).toBe(201);
+    expect(res.body.stock_quantity).toBe(0);
+    expect(res.body.low_stock_threshold).toBe(0);
+  });
+
+  test('POST accepts integer values sent as numeric strings', async () => {
+    const res = await request(app).post('/api/products').send({
+      ...valid, stock_quantity: '7', low_stock_threshold: '2', unit_price: '3.50'
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.stock_quantity).toBe(7);
+    expect(res.body.low_stock_threshold).toBe(2);
+  });
+});

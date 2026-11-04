@@ -3,6 +3,8 @@ const pool = require('../db/pool');
 
 const router = express.Router();
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 router.post('/', async (req, res, next) => {
   const { items } = req.body;
 
@@ -10,16 +12,43 @@ router.post('/', async (req, res, next) => {
     return res.status(400).json({ error: 'invalid_input', message: 'items is required and must be a non-empty array' });
   }
 
-  const client = await pool.connect();
+  for (const item of items) {
+    const { product_id, quantity } = item || {};
+
+    if (typeof product_id !== 'string' || !UUID_RE.test(product_id)) {
+      return res.status(400).json({ error: 'invalid_input', message: 'each item must have a valid product_id' });
+    }
+
+    if (typeof quantity !== 'number' || !Number.isInteger(quantity) || quantity < 1) {
+      return res.status(400).json({ error: 'invalid_input', message: 'each item must have an integer quantity >= 1' });
+    }
+  }
+
+  // Aggregate requested quantities per product so duplicate lines for the
+  // same product are checked against stock in total, not independently.
+  const requestedByProduct = new Map();
+  for (const { product_id, quantity } of items) {
+    requestedByProduct.set(product_id, (requestedByProduct.get(product_id) || 0) + quantity);
+  }
+
+  // Lock/select products in a fixed order (sorted by id) across all
+  // concurrent transactions to avoid lock-order deadlocks.
+  const sortedProductIds = Array.from(requestedByProduct.keys()).sort();
+
+  let client;
+  try {
+    client = await pool.connect();
+  } catch (err) {
+    return next(err);
+  }
 
   try {
     await client.query('BEGIN');
 
-    let totalAmount = 0;
-    const lineItems = [];
+    const priceByProduct = new Map();
 
-    for (const item of items) {
-      const { product_id, quantity } = item;
+    for (const product_id of sortedProductIds) {
+      const totalRequested = requestedByProduct.get(product_id);
 
       const productResult = await client.query(
         'SELECT unit_price, stock_quantity FROM products WHERE id = $1 FOR UPDATE',
@@ -33,11 +62,19 @@ router.post('/', async (req, res, next) => {
 
       const { unit_price, stock_quantity } = productResult.rows[0];
 
-      if (stock_quantity < quantity) {
+      if (stock_quantity < totalRequested) {
         await client.query('ROLLBACK');
         return res.status(409).json({ error: 'insufficient_stock', product_id });
       }
 
+      priceByProduct.set(product_id, unit_price);
+    }
+
+    let totalAmount = 0;
+    const lineItems = [];
+    for (const item of items) {
+      const { product_id, quantity } = item;
+      const unit_price = priceByProduct.get(product_id);
       totalAmount += Number(unit_price) * quantity;
       lineItems.push({ product_id, quantity, unit_price_at_sale: unit_price });
     }
@@ -76,11 +113,18 @@ router.post('/', async (req, res, next) => {
     try {
       await client.query('ROLLBACK');
     } catch (rollbackErr) {
-      // ignore rollback errors; original error takes precedence
+      // ROLLBACK itself failed; the connection may be in a broken state.
+      // Pass the error to release() so node-postgres discards it instead
+      // of returning it to the pool for reuse.
+      client.release(rollbackErr);
+      client = null;
+      return next(err);
     }
     next(err);
   } finally {
-    client.release();
+    if (client) {
+      client.release();
+    }
   }
 });
 
